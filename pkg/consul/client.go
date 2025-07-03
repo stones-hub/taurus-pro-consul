@@ -2,6 +2,7 @@
 package consul
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -15,6 +16,8 @@ type Client struct {
 	client *api.Client
 	logger *log.Logger
 	config *Config
+	ctx    context.Context    // 用于控制后台任务的上下文
+	cancel context.CancelFunc // 用于取消上下文
 }
 
 // Config 是Consul客户端的配置
@@ -125,6 +128,9 @@ func NewClient(opts ...Option) (*Client, error) {
 		opt(cfg)
 	}
 
+	// 创建上下文
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// 创建Consul API配置
 	config := api.DefaultConfig()
 	config.Address = cfg.address
@@ -137,6 +143,7 @@ func NewClient(opts ...Option) (*Client, error) {
 	// 创建Consul客户端
 	client, err := api.NewClient(config)
 	if err != nil {
+		cancel() // 如果出错，取消上下文
 		return nil, fmt.Errorf("failed to create consul client: %v", err)
 	}
 
@@ -149,6 +156,8 @@ func NewClient(opts ...Option) (*Client, error) {
 				client: client,
 				logger: cfg.logger,
 				config: cfg,
+				ctx:    ctx,
+				cancel: cancel,
 			}, nil
 		} else {
 			lastErr = err
@@ -159,5 +168,15 @@ func NewClient(opts ...Option) (*Client, error) {
 		}
 	}
 
+	cancel() // 如果连接失败，取消上下文
 	return nil, fmt.Errorf("failed to connect to consul after %d attempts: %v", cfg.maxRetries, lastErr)
+}
+
+// Close 关闭客户端并清理资源
+func (c *Client) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.logger.Println("Consul client closed")
+	return nil
 }

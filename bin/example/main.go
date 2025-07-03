@@ -107,10 +107,11 @@ func startUserService(wg *sync.WaitGroup, client *consul.Client, logger *log.Log
 		return
 	}
 
+	serviceID := "user-service-1"
 	// 注册服务
 	err := client.RegisterService(&consul.ServiceConfig{
 		Name:    "user-service",
-		ID:      "user-service-1",
+		ID:      serviceID,
 		Address: userService.address,
 		Port:    userService.port,
 		Tags:    []string{"api", "v1", "user"},
@@ -131,6 +132,15 @@ func startUserService(wg *sync.WaitGroup, client *consul.Client, logger *log.Log
 		userService.logger.Printf("Failed to register service: %v", err)
 		return
 	}
+
+	// 确保服务退出时注销服务
+	defer func() {
+		if err := client.DeregisterService(serviceID); err != nil {
+			userService.logger.Printf("Error deregistering service: %v", err)
+		} else {
+			userService.logger.Printf("Service deregistered successfully: %s", serviceID)
+		}
+	}()
 
 	// 监听配置变更
 	err = client.WatchConfig("config/user-service", userService.config, &consul.WatchOptions{
@@ -233,10 +243,11 @@ func startPaymentService(wg *sync.WaitGroup, client *consul.Client, logger *log.
 		return
 	}
 
+	serviceID := "payment-service-1"
 	// 注册服务
 	err := client.RegisterService(&consul.ServiceConfig{
 		Name:    "payment-service",
-		ID:      "payment-service-1",
+		ID:      serviceID,
 		Address: paymentService.address,
 		Port:    paymentService.port,
 		Tags:    []string{"api", "v1", "payment"},
@@ -257,6 +268,15 @@ func startPaymentService(wg *sync.WaitGroup, client *consul.Client, logger *log.
 		paymentService.logger.Printf("Failed to register service: %v", err)
 		return
 	}
+
+	// 确保服务退出时注销服务
+	defer func() {
+		if err := client.DeregisterService(serviceID); err != nil {
+			paymentService.logger.Printf("Error deregistering service: %v", err)
+		} else {
+			paymentService.logger.Printf("Service deregistered successfully: %s", serviceID)
+		}
+	}()
 
 	// 监听配置变更
 	err = client.WatchConfig("config/payment-service", paymentService.config, &consul.WatchOptions{
@@ -369,10 +389,11 @@ func startOrderService(wg *sync.WaitGroup, client *consul.Client, logger *log.Lo
 		return
 	}
 
+	serviceID := "order-service-1"
 	// 注册服务
 	err := client.RegisterService(&consul.ServiceConfig{
 		Name:    "order-service",
-		ID:      "order-service-1",
+		ID:      serviceID,
 		Address: orderService.address,
 		Port:    orderService.port,
 		Tags:    []string{"api", "v1", "order"},
@@ -393,6 +414,15 @@ func startOrderService(wg *sync.WaitGroup, client *consul.Client, logger *log.Lo
 		orderService.logger.Printf("Failed to register service: %v", err)
 		return
 	}
+
+	// 确保服务退出时注销服务
+	defer func() {
+		if err := client.DeregisterService(serviceID); err != nil {
+			orderService.logger.Printf("Error deregistering service: %v", err)
+		} else {
+			orderService.logger.Printf("Service deregistered successfully: %s", serviceID)
+		}
+	}()
 
 	// 监听配置变更
 	err = client.WatchConfig("config/order-service", orderService.config, &consul.WatchOptions{
@@ -518,6 +548,11 @@ func main() {
 	if err != nil {
 		logger.Fatalf("Failed to create consul client: %v", err)
 	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Printf("Error closing consul client: %v", err)
+		}
+	}()
 
 	// 创建上下文和取消函数
 	ctx, cancel := context.WithCancel(context.Background())
@@ -545,17 +580,6 @@ func main() {
 
 	// 取消上下文，触发所有服务关闭
 	cancel()
-
-	// 注销所有服务
-	if err := client.DeregisterService("user-service-1"); err != nil {
-		logger.Printf("Error deregistering user service: %v", err)
-	}
-	if err := client.DeregisterService("payment-service-1"); err != nil {
-		logger.Printf("Error deregistering payment service: %v", err)
-	}
-	if err := client.DeregisterService("order-service-1"); err != nil {
-		logger.Printf("Error deregistering order service: %v", err)
-	}
 
 	// 等待所有服务完全停止
 	wg.Wait()

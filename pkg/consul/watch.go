@@ -43,26 +43,32 @@ func (c *Client) WatchConfig(key string, config interface{}, opts *WatchOptions)
 	go func() {
 		var waitIndex uint64
 		for {
-			pair, meta, err := c.client.KV().Get(key, &api.QueryOptions{
-				WaitIndex: waitIndex,
-				WaitTime:  opts.WaitTime,
-			})
+			select {
+			case <-c.ctx.Done():
+				c.logger.Printf("Stopping watch for key: %s", key)
+				return
+			default:
+				pair, meta, err := c.client.KV().Get(key, &api.QueryOptions{
+					WaitIndex: waitIndex,
+					WaitTime:  opts.WaitTime,
+				})
 
-			if err != nil {
-				c.logger.Printf("Error watching key %s: %v", key, err)
-				time.Sleep(opts.RetryTime)
-				continue
-			}
-
-			if pair != nil && meta.LastIndex > waitIndex {
-				if err := json.Unmarshal(pair.Value, config); err != nil {
-					c.logger.Printf("Error parsing config for %s: %v", key, err)
+				if err != nil {
+					c.logger.Printf("Error watching key %s: %v", key, err)
+					time.Sleep(opts.RetryTime)
 					continue
 				}
-				c.logger.Printf("Config updated: %s", key)
-			}
 
-			waitIndex = meta.LastIndex
+				if pair != nil && meta.LastIndex > waitIndex {
+					if err := json.Unmarshal(pair.Value, config); err != nil {
+						c.logger.Printf("Error parsing config for %s: %v", key, err)
+						continue
+					}
+					c.logger.Printf("Config updated: %s", key)
+				}
+
+				waitIndex = meta.LastIndex
+			}
 		}
 	}()
 

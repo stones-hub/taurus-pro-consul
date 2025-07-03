@@ -6,15 +6,6 @@ import (
 	"github.com/hashicorp/consul/api"
 )
 
-// KVPair 定义KV操作的配置
-type KVPair struct {
-	Key       string // 键名
-	Value     []byte // 值
-	Flags     uint64 // 用户定义的值标记
-	Version   uint64 // 用于CAS操作的版本号
-	LockIndex uint64 // 锁索引
-}
-
 // Put 写入KV
 func (c *Client) Put(key string, value []byte) error {
 	if key == "" {
