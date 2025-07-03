@@ -19,65 +19,6 @@ type CheckConfig struct {
 	Header          map[string][]string // HTTP头
 }
 
-// AddHealthCheck 为服务添加健康检查
-func (c *Client) AddHealthCheck(serviceID string, checkCfg *CheckConfig) error {
-	if serviceID == "" {
-		return fmt.Errorf("service ID cannot be empty")
-	}
-
-	if checkCfg == nil {
-		return fmt.Errorf("check config cannot be nil")
-	}
-
-	// 创建健康检查配置
-	check := &api.AgentServiceCheck{
-		Name:                           fmt.Sprintf("service:%s check", serviceID),
-		Interval:                       checkCfg.Interval.String(),
-		Timeout:                        checkCfg.Timeout.String(),
-		DeregisterCriticalServiceAfter: checkCfg.DeregisterAfter.String(),
-		TLSSkipVerify:                  checkCfg.TLSSkipVerify,
-		Method:                         checkCfg.Method,
-		Header:                         checkCfg.Header,
-	}
-
-	// 设置检查类型
-	if checkCfg.HTTP != "" {
-		check.HTTP = checkCfg.HTTP
-	} else if checkCfg.TCP != "" {
-		check.TCP = checkCfg.TCP
-	} else {
-		return fmt.Errorf("either HTTP or TCP check must be specified")
-	}
-
-	// 注册健康检查
-	reg := &api.AgentServiceRegistration{
-		ID:    serviceID,
-		Check: check,
-	}
-
-	if err := c.client.Agent().ServiceRegister(reg); err != nil {
-		return fmt.Errorf("failed to register health check: %v", err)
-	}
-
-	c.logger.Printf("Health check added for service: %s", serviceID)
-	return nil
-}
-
-// RemoveHealthCheck 移除服务的健康检查
-func (c *Client) RemoveHealthCheck(serviceID string) error {
-	if serviceID == "" {
-		return fmt.Errorf("service ID cannot be empty")
-	}
-
-	checkID := "service:" + serviceID
-	if err := c.client.Agent().CheckDeregister(checkID); err != nil {
-		return fmt.Errorf("failed to remove health check: %v", err)
-	}
-
-	c.logger.Printf("Health check removed for service: %s", serviceID)
-	return nil
-}
-
 // GetHealthChecks 获取服务的健康检查状态
 func (c *Client) GetHealthChecks(serviceID string) (api.HealthChecks, error) {
 	if serviceID == "" {

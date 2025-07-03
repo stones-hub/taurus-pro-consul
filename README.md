@@ -1,173 +1,199 @@
 # Taurus Pro Consul
 
-一个简单易用的 Consul 客户端封装库。
+一个功能强大的 Consul 服务发现和配置管理包，提供简单易用的 API 来管理分布式系统中的服务注册、发现、配置管理和服务间调用。
 
 ## 功能特性
 
 - 服务注册与发现
-- KV 存储操作
 - 健康检查
-- 配置变更监听
-- 灵活的配置选项
-- 自动重试机制
-- 支持 HTTP Basic Auth
+- 配置管理和实时更新
+- 服务间调用（支持负载均衡和重试机制）
+- 标签化服务管理
+- 优雅的错误处理
 
-## 安装
+## 快速开始
+
+### 安装
 
 ```bash
 go get github.com/yelei-cn/taurus-pro-consul
 ```
 
-## 快速开始
+### 基本使用
 
 ```go
-package main
+import consul "github.com/yelei-cn/taurus-pro-consul/pkg/consul"
 
-import (
-    "fmt"
-    "log"
-    "time"
-    
-    consul "github.com/yelei-cn/taurus-pro-consul/pkg/consul"
+// 创建客户端
+client, err := consul.NewClient(
+    consul.WithAddress("localhost:8500"),
+    consul.WithLogger(logger),
+    consul.WithTimeout(time.Second*5),
 )
 
-func main() {
-    // 创建客户端（使用默认配置）
-    client, err := consul.NewClient()
-    if err != nil {
-        log.Fatal(err)
+// 注册服务
+err = client.RegisterService(&consul.ServiceConfig{
+    Name:    "my-service",
+    ID:      "my-service-1",
+    Address: "localhost",
+    Port:    8080,
+    Tags:    []string{"api", "v1"},
+    Checks: []*consul.CheckConfig{
+        {
+            HTTP:            "http://localhost:8080/health",
+            Interval:        time.Second * 10,
+            Timeout:         time.Second * 5,
+            DeregisterAfter: time.Minute,
+        },
+    },
+})
+```
+
+## 功能演示
+
+本示例展示了一个完整的微服务系统，包含用户服务、支付服务和订单服务。
+
+### 1. 启动服务
+
+```bash
+cd bin/example
+go run main.go
+```
+
+服务启动后，将看到以下输出：
+```
+[MAIN] Value put for key: config/user-service
+[MAIN] Value put for key: config/order-service
+[MAIN] Value put for key: config/payment-service
+[MAIN] Service registered successfully: user-service (ID: user-service-1)
+[USER-SERVICE] Starting user service on port 8081
+[MAIN] Service registered successfully: order-service (ID: order-service-1)
+[MAIN] Service registered successfully: payment-service (ID: payment-service-1)
+[ORDER-SERVICE] Starting order service on port 8083
+[PAYMENT-SERVICE] Starting payment service on port 8082
+```
+
+### 2. 验证服务健康状态
+
+检查用户服务的健康状态：
+```bash
+curl http://192.168.3.240:8500/v1/health/service/user-service
+```
+
+响应示例：
+```json
+[
+  {
+    "Node": {
+      "ID": "19df7117-a804-85bf-7f01-0d75a5f2904a",
+      "Node": "consul-node",
+      ...
+    },
+    "Service": {
+      "ID": "user-service-1",
+      "Service": "user-service",
+      "Tags": ["api", "v1", "user"],
+      "Address": "192.168.40.30",
+      "Port": 8081,
+      ...
+    },
+    "Checks": [
+      {
+        "Status": "passing",
+        "Output": "HTTP GET http://192.168.40.30:8081/health: 200 OK Output: {\"status\":\"healthy\"}"
+      }
+    ]
+  }
+]
+```
+
+### 3. 测试配置管理
+
+更新用户服务配置：
+```bash
+curl -X PUT -d '{
+  "database": {
+    "host": "192.168.40.30",
+    "port": 5432,
+    "username": "user_service",
+    "password": "password123"
+  },
+  "features": {
+    "email_verification": false,
+    "sms_notification": true,
+    "oauth_login": true
+  }
+}' http://192.168.3.240:8500/v1/kv/config/user-service
+```
+
+验证配置更新：
+```bash
+curl http://192.168.40.30:8081/users/verify
+```
+
+预期响应：
+```
+Email verification is disabled
+```
+
+### 4. 测试服务调用链
+
+创建订单（触发完整的服务调用链）：
+```bash
+curl "http://192.168.40.30:8083/orders/create?user_id=123&amount=100"
+```
+
+响应示例：
+```json
+{
+  "expire_in": "30 minutes",
+  "order_id": "ORD-123-1751536571",
+  "payment": {
+    "payment_id": "pay_123",
+    "provider": "stripe",
+    "provider_info": {
+      "api_key": "sk_test_123",
+      "endpoint": "https://api.stripe.com/v1",
+      "timeout": 30
+    },
+    "status": "processed",
+    "user": {
+      "features": {
+        "email_verification": false,
+        "oauth_login": true,
+        "sms_notification": true
+      },
+      "id": "123",
+      "name": "Test User"
     }
-    
-    // 或者使用自定义配置
-    client, err = consul.NewClient(
-        consul.WithAddress("localhost:8500"),
-        consul.WithToken("your-acl-token"),
-        consul.WithTimeout(5 * time.Second),
-        consul.WithScheme("https"),
-        consul.WithMaxRetries(5),
-        consul.WithBasicAuth("username", "password"),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // 注册服务
-    err = client.Register("my-service", "service-1", "127.0.0.1", 8080, []string{"v1"})
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // 获取服务
-    services, err := client.GetService("my-service", "v1")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    for _, service := range services {
-        fmt.Printf("Found service: %s at %s:%d\n", 
-            service.Service.Service,
-            service.Service.Address,
-            service.Service.Port)
-    }
-    
-    // KV操作
-    err = client.Put("config/app", []byte("hello world"))
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    value, err := client.Get("config/app")
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Printf("Value: %s\n", string(value))
-    
-    // 监听配置变更
-    ch, err := client.WatchKey("config/app")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    go func() {
-        for value := range ch {
-            fmt.Printf("Config updated: %s\n", string(value))
-        }
-    }()
+  },
+  "status": "created"
 }
 ```
 
-## 配置选项
+## 架构说明
 
-客户端支持多个配置选项，所有选项都是可选的，未指定时使用默认值：
+示例系统包含三个微服务：
 
-- `WithAddress(address string)` - 设置Consul地址，默认 "127.0.0.1:8500"
-- `WithToken(token string)` - 设置ACL Token
-- `WithTimeout(timeout time.Duration)` - 设置操作超时时间，默认 10秒
-- `WithScheme(scheme string)` - 设置连接协议（http/https），默认 "http"
-- `WithDatacenter(datacenter string)` - 设置数据中心
-- `WithWaitTime(waitTime time.Duration)` - 设置查询等待时间，默认 10秒
-- `WithRetryTime(retryTime time.Duration)` - 设置重试间隔时间，默认 3秒
-- `WithMaxRetries(maxRetries int)` - 设置最大重试次数，默认 3次
-- `WithLogger(logger *log.Logger)` - 设置自定义日志器
-- `WithBasicAuth(username, password string)` - 设置HTTP Basic Auth认证信息
+1. 用户服务 (8081端口)
+   - 提供用户信息和验证
+   - 支持可配置的功能开关
+   - 提供健康检查接口
 
-### 默认配置
+2. 支付服务 (8082端口)
+   - 处理支付请求
+   - 调用用户服务验证用户信息
+   - 支持多支付提供商配置
 
-```go
-defaultConfig := &Config{
-    address:    "127.0.0.1:8500",
-    timeout:    10 * time.Second,
-    scheme:     "http",
-    waitTime:   time.Second * 10,
-    retryTime:  time.Second * 3,
-    maxRetries: 3,
-    logger:     log.New(os.Stdout, "[CONSUL] ", log.LstdFlags),
-}
-```
+3. 订单服务 (8083端口)
+   - 创建和管理订单
+   - 协调用户服务和支付服务
+   - 展示完整的服务调用链
 
-### 主要方法
+## 贡献
 
-- `NewClient(opts ...Option) (*Client, error)` - 创建新的客户端
-- `Register(name, id, address string, port int, tags []string) error` - 注册服务
-- `Deregister(id string) error` - 注销服务
-- `GetService(name, tag string) ([]*api.ServiceEntry, error)` - 获取服务实例
-- `Put(key string, value []byte) error` - 写入KV
-- `Get(key string) ([]byte, error)` - 获取KV
-- `Delete(key string) error` - 删除KV
-- `WatchKey(key string) (<-chan []byte, error)` - 监听KV变更
-- `GetHealthyServices(name string) ([]*api.ServiceEntry, error)` - 获取健康的服务列表
-- `GetAllServices() (map[string][]string, error)` - 获取所有服务
+欢迎提交 Issue 和 Pull Request。
 
-## 特性说明
+## 许可证
 
-1. 自动重试
-   - 客户端创建时会自动进行连接测试
-   - 连接失败时会根据配置进行重试
-   - 可通过配置项调整重试次数和间隔
-
-2. 安全连接
-   - 支持 HTTPS
-   - 支持 ACL Token
-   - 支持 Basic Auth
-
-3. 灵活配置
-   - 所有配置项都是可选的
-   - 使用函数式选项模式，易于扩展
-   - 提供合理的默认值
-
-4. 日志记录
-   - 默认提供基本日志记录
-   - 支持自定义日志器
-   - 记录重要操作和错误信息
-
-## 注意事项
-
-1. 确保Consul服务已经启动并可访问
-2. 建议在生产环境中配置ACL Token
-3. 服务注册时建议使用唯一的服务ID
-4. 监听配置变更时注意处理channel关闭的情况
-5. 在生产环境中建议配置适当的重试策略
-
-## License
-
-MIT
+MIT License 

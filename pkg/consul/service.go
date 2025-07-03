@@ -14,6 +14,7 @@ type ServiceConfig struct {
 	Address string            // 服务地址，如果为空则使用本机地址
 	Port    int               // 服务端口
 	Meta    map[string]string // 服务元数据
+	Checks  []*CheckConfig    // 健康检查配置
 }
 
 // RegisterService 注册服务到Consul
@@ -44,6 +45,24 @@ func (c *Client) RegisterService(cfg *ServiceConfig) error {
 		Port:    cfg.Port,
 		Address: cfg.Address,
 		Meta:    cfg.Meta,
+	}
+
+	// 添加健康检查配置
+	if len(cfg.Checks) > 0 {
+		reg.Checks = make([]*api.AgentServiceCheck, len(cfg.Checks))
+		for i, check := range cfg.Checks {
+			reg.Checks[i] = &api.AgentServiceCheck{
+				Name:                           fmt.Sprintf("service:%s check", cfg.ID),
+				HTTP:                           check.HTTP,
+				TCP:                            check.TCP,
+				Interval:                       check.Interval.String(),
+				Timeout:                        check.Timeout.String(),
+				DeregisterCriticalServiceAfter: check.DeregisterAfter.String(),
+				TLSSkipVerify:                  check.TLSSkipVerify,
+				Method:                         check.Method,
+				Header:                         check.Header,
+			}
+		}
 	}
 
 	// 注册服务
