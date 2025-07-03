@@ -1,4 +1,4 @@
-module github.com/yelei-cn/taurus-pro-consul
+module github.com/stones-hub/taurus-pro-consul
 
 go 1.21
 

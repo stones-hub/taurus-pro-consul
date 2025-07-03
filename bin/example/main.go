@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	consul "github.com/yelei-cn/taurus-pro-consul/pkg/consul"
+	consul "github.com/stones-hub/taurus-pro-consul/pkg/consul"
 )
 
 // 用户服务配置
