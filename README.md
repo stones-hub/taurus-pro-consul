@@ -1,6 +1,6 @@
 # Taurus Pro Consul
 
-[![Go Version](https://img.shields.io/badge/Go-1.24.2+-blue.svg)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.27.3+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/stones-hub/taurus-pro-consul)](https://goreportcard.com/report/github.com/stones-hub/taurus-pro-consul)
 
@@ -19,7 +19,7 @@ Taurus Pro Consul 是一个基于 HashiCorp Consul 的 Go 语言客户端封装�
 
 ## 📋 系统要求
 
-- Go 1.24.2 或更高版本
+- Go 1.27.3 或更高版本
 - Consul 服务器（支持 v1.32.1+ API）
 
 ## 🚀 快速开始
