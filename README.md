@@ -186,7 +186,10 @@ client.Close()
 ```go
 func (c *Client) GetService(name string, tag string) ([]*api.ServiceEntry, error)
 func (c *Client) GetHealthyServices(name string) ([]*api.ServiceEntry, error)
+func (c *Client) GetHealthChecks(serviceID string) (api.HealthChecks, error)
 ```
+
+`GetHealthChecks` 的参数是**服务实例 ID**（`RegisterService` 的 `ID`，未指定时为 `Name-Port`），不是服务名，按 ServiceID 精确匹配。它查询所连接的**本地 agent**（`/v1/agent/checks`），与 `RegisterService` 的注册范围一致，返回该实例全部状态（passing / warning / critical）的检查；未知 ID 返回空结果，空 ID 返回错误。启用 ACL 时，结果受当前 Token 的读取权限过滤，空结果也可能表示检查不可见；该 agent 接口不提供 Catalog 的 `ServiceTags`、`PeerName` 或创建/修改索引，这些返回字段保持零值。
 
 ### 键值存储
 
@@ -231,7 +234,7 @@ func (c *Client) NewServiceInvoker(serviceName string, opts ...InvokerOption) *S
 #### 负载均衡策略
 
 - `Random`: 随机选择
-- `RoundRobin`: 轮询选择
+- `RoundRobin`: 轮询选择（并发安全，同一个 `ServiceInvoker` 可被多个 goroutine 共享）
 - `LeastConn`: 最少连接数
 
 ## 🏗️ 项目结构
@@ -344,6 +347,12 @@ export CONSUL_HTTP_SSL_VERIFY=false
 
 ```bash
 go test ./pkg/consul/...
+```
+
+默认不连接真实 Consul。启动独立的本机 Consul 后，显式指定地址运行真实集成测试（测试会创建并清理服务实例，请勿指向生产环境）：
+
+```bash
+CONSUL_INTEGRATION_ADDR=127.0.0.1:18500 go test -race -count=1 -timeout=90s -run '^TestIntegration' ./pkg/consul
 ```
 
 运行基准测试：

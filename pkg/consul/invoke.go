@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/consul/api"
@@ -32,7 +33,7 @@ type ServiceInvoker struct {
 	timeout       time.Duration
 	retryCount    int
 	retryInterval time.Duration
-	currentIndex  int // 用于轮询策略
+	rrCounter     atomic.Uint64 // 用于轮询策略，并发安全
 	httpClient    *http.Client
 }
 
@@ -125,8 +126,9 @@ func (i *ServiceInvoker) Call(method, path string, headers map[string]string, bo
 	case Random:
 		selectedService = services[rand.Intn(len(services))]
 	case RoundRobin:
-		selectedService = services[i.currentIndex%len(services)]
-		i.currentIndex++
+		// Add 返回自增后的值，减 1 保证第一次选择第一个实例；无符号计数器回绕不会产生负下标
+		n := i.rrCounter.Add(1) - 1
+		selectedService = services[n%uint64(len(services))]
 	case LeastConn:
 		// 这里可以实现最少连接数的选择逻辑
 		// 需要维护每个实例的连接数统计

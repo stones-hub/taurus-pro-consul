@@ -2,6 +2,7 @@ package consul
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/hashicorp/consul/api"
@@ -19,25 +20,46 @@ type CheckConfig struct {
 	Header          map[string][]string // HTTP头
 }
 
-// GetHealthChecks 获取服务的健康检查状态
+// GetHealthChecks 获取本地 agent 上指定服务实例的全部健康检查（passing/warning/critical）。
+//
+// serviceID 是服务实例 ID（RegisterService 中的 ID，未指定时为 Name-Port），不是服务名，
+// 按 ServiceID 精确匹配。查询范围是客户端所连接的本地 agent（/v1/agent/checks），
+// 与 RegisterService 的注册范围一致，不会返回其他节点上的实例。
+// 未知 ID 返回空结果而非错误；结果按 CheckID 排序。
 func (c *Client) GetHealthChecks(serviceID string) (api.HealthChecks, error) {
 	if serviceID == "" {
 		return nil, fmt.Errorf("service ID cannot be empty")
 	}
 
-	// 先获取服务的所有实例
-	services, err := c.GetHealthyServices(serviceID)
+	agentChecks, err := c.client.Agent().Checks()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get health checks: %v", err)
 	}
 
-	// 收集所有健康检查
-	var allChecks api.HealthChecks
-	for _, service := range services {
-		allChecks = append(allChecks, service.Checks...)
+	checks := api.HealthChecks{}
+	for _, ac := range agentChecks {
+		if ac == nil || ac.ServiceID != serviceID {
+			continue
+		}
+		checks = append(checks, &api.HealthCheck{
+			Node:        ac.Node,
+			CheckID:     ac.CheckID,
+			Name:        ac.Name,
+			Status:      ac.Status,
+			Notes:       ac.Notes,
+			Output:      ac.Output,
+			ServiceID:   ac.ServiceID,
+			ServiceName: ac.ServiceName,
+			Type:        ac.Type,
+			Namespace:   ac.Namespace,
+			Partition:   ac.Partition,
+			ExposedPort: ac.ExposedPort,
+			Definition:  ac.Definition,
+		})
 	}
+	sort.Slice(checks, func(i, j int) bool { return checks[i].CheckID < checks[j].CheckID })
 
-	return allChecks, nil
+	return checks, nil
 }
 
 // GetHealthyServices 获取健康的服务列表
