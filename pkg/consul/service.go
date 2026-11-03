@@ -1,6 +1,8 @@
 package consul
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hashicorp/consul/api"
@@ -75,13 +77,47 @@ func (c *Client) RegisterService(cfg *ServiceConfig) error {
 }
 
 // DeregisterService 注销服务
+// 单次注销最多等待 WithTimeout 配置的时长（<=0 表示不限时），客户端 Close 会取消进行中的注销。
+// 需要由调用方控制时限时使用 DeregisterServiceContext。
 func (c *Client) DeregisterService(serviceID string) error {
+	ctx := context.Background()
+	if c.config != nil && c.config.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.config.timeout)
+		defer cancel()
+	}
+	return c.DeregisterServiceContext(ctx, serviceID)
+}
+
+// DeregisterServiceContext 注销服务，ctx 取消或到期时底层 HTTP 请求随之中止
+// 客户端 Close 同样会取消进行中的注销，Close 之后调用直接返回错误。
+// 返回的错误可用 errors.Is 判断 context.Canceled / context.DeadlineExceeded，
+// 可用 errors.As 取出 api.StatusError（例如服务不存在时 Consul 返回的 404）。
+func (c *Client) DeregisterServiceContext(ctx context.Context, serviceID string) error {
 	if serviceID == "" {
 		return fmt.Errorf("service ID cannot be empty")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c.ctx != nil && c.ctx.Err() != nil {
+		return fmt.Errorf("failed to deregister service: consul client closed: %w", c.ctx.Err())
+	}
 
-	if err := c.client.Agent().ServiceDeregister(serviceID); err != nil {
-		return fmt.Errorf("failed to deregister service: %v", err)
+	// 客户端 Close 时取消请求
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if c.ctx != nil {
+		stop := context.AfterFunc(c.ctx, cancel)
+		defer stop()
+	}
+
+	q := (&api.QueryOptions{}).WithContext(reqCtx)
+	if err := c.client.Agent().ServiceDeregisterOpts(serviceID, q); err != nil {
+		if errors.Is(err, context.Canceled) && ctx.Err() == nil && c.ctx != nil && c.ctx.Err() != nil {
+			return fmt.Errorf("failed to deregister service: consul client closed: %w", err)
+		}
+		return fmt.Errorf("failed to deregister service: %w", err)
 	}
 
 	c.logger.Printf("Service deregistered successfully: %s", serviceID)

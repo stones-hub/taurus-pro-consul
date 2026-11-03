@@ -52,6 +52,7 @@ func WithToken(token string) Option {
 }
 
 // WithTimeout 设置操作超时时间
+// 目前只对 DeregisterService 的单次注销请求生效，<=0 表示不限时；其他 API 不受此配置约束。
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Config) {
 		c.timeout = timeout

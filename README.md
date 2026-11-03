@@ -130,7 +130,7 @@ func NewClient(opts ...Option) (*Client, error)
 |------|------|------|--------|
 | `WithAddress` | string | Consul 服务地址 | "localhost:8500" |
 | `WithToken` | string | ACL Token | "" |
-| `WithTimeout` | time.Duration | 操作超时时间 | 30s |
+| `WithTimeout` | time.Duration | `DeregisterService` 单次注销的超时时间（`<=0` 不限时），**不作用于其他 API**，见下方[超时与取消](#超时与取消) | 10s |
 | `WithScheme` | string | 连接协议 | "http" |
 | `WithDatacenter` | string | 数据中心 | "" |
 | `WithWaitTime` | time.Duration | 查询等待时间 | 10s |
@@ -150,7 +150,36 @@ func (c *Client) RegisterService(cfg *ServiceConfig) error
 
 ```go
 func (c *Client) DeregisterService(serviceID string) error
+func (c *Client) DeregisterServiceContext(ctx context.Context, serviceID string) error
 ```
+
+- `DeregisterService` 使用 `WithTimeout` 配置作为单次注销的时限。
+- `DeregisterServiceContext` 由调用方的 `ctx` 控制时限，`ctx` 取消或到期会中止底层 HTTP 请求（不受 `WithTimeout` 影响）。
+- 两者在客户端 `Close()` 时都会取消进行中的请求；`Close()` 之后调用直接返回错误，不再发请求。
+- 超时/取消返回的错误可用 `errors.Is(err, context.DeadlineExceeded)` / `errors.Is(err, context.Canceled)` 判断；Consul 返回非 200（例如服务 ID 不存在时的 404）时可用 `var se api.StatusError; errors.As(err, &se)` 取出状态码，错误文本与之前版本一致。
+
+```go
+// 退出时限时注销
+ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+defer cancel()
+if err := client.DeregisterServiceContext(ctx, serviceID); err != nil {
+    log.Printf("deregister failed: %v", err)
+}
+client.Close()
+```
+
+#### 超时与取消
+
+客户端没有设置全局 `http.Client.Timeout`（否则会打断 `WatchConfig` 使用的阻塞查询），因此**只有下列操作有客户端侧时限**：
+
+| 操作 | 时限来源 |
+|------|----------|
+| `DeregisterService` | `WithTimeout`（默认 10s，`<=0` 不限时），以及 `Close()` |
+| `DeregisterServiceContext` | 调用方 `ctx`，以及 `Close()` |
+| `ServiceInvoker.Call` / `CallJSON` 对目标服务发出的 HTTP 请求 | `WithInvokeTimeout`（默认 30s） |
+| `GetWithOptions` / `PutWithOptions` | 调用方可通过 `opts.WithContext(ctx)` 自行传入 |
+
+其余 API 目前**没有客户端侧时限**，Consul 无响应时会一直等待：`NewClient` 的连通性检查、`RegisterService`、`GetService`、`GetHealthyServices`、`GetHealthChecks`、`GetAllServices`、`Put`、`Get`、`Delete`、`List`、`CAS`、`WatchConfig` 的初始读取，以及 `ServiceInvoker` 发现服务实例的那一步。`WatchConfig` 的阻塞查询只受服务端 `WaitTime` 约束，`Close()` 不会中断正在进行的那一次查询，只会在它返回后停止监听。
 
 #### 服务查询
 
